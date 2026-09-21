@@ -1,35 +1,206 @@
-# `dbxcli`: A command line tool for Dropbox users and team admins [UNOFFICIAL]
+# `dbxcli`: Dropbox from the command line
 
 [![CI](https://github.com/dropbox/dbxcli/actions/workflows/ci.yml/badge.svg)](https://github.com/dropbox/dbxcli/actions/workflows/ci.yml)
-[![Go Report Card](https://goreportcard.com/badge/github.com/dropbox/dbxcli)](https://goreportcard.com/report/github.com/dropbox/dbxcli)
+[![Scorecard](https://github.com/dropbox/dbxcli/actions/workflows/scorecard.yml/badge.svg)](https://github.com/dropbox/dbxcli/actions/workflows/scorecard.yml)
+[![CodeQL](https://github.com/dropbox/dbxcli/actions/workflows/codeql.yml/badge.svg)](https://github.com/dropbox/dbxcli/actions/workflows/codeql.yml)
+[![Release](https://github.com/dropbox/dbxcli/actions/workflows/release.yml/badge.svg)](https://github.com/dropbox/dbxcli/actions/workflows/release.yml)
 
-:warning: WARNING: This project is **NOT official**. What does this mean?
+`dbxcli` is a scriptable Dropbox CLI for files, shared links, teams, and
+automation workflows. It is built for humans in the terminal, scripts, CI jobs,
+and agent-style workflows.
 
-  * There is no formal Dropbox support for this project
-  * Bugs may or may not get fixed
-  * Not all SDK features may be implemented and implemented features may be buggy or incorrect
+## Why use dbxcli?
+
+* Work with Dropbox from the terminal
+* Upload and download files, folders, and streams
+* Create, inspect, update, revoke, and download shared links
+* Use JSON output for scripts and automation
+* Pipe generated content directly into Dropbox
+* Manage team workflows with member-scoped access
+
+## Quickstart
+
+```sh
+dbxcli login
+dbxcli ls /
+dbxcli put local.txt /remote.txt
+dbxcli get /remote.txt ./remote.txt
+dbxcli share-link create /remote.txt
+```
+
+On team accounts where `/` is not writable, run `dbxcli ls /` and use a
+writable personal or team folder instead.
+
+For automation, use structured command output and JSON help discovery:
+
+```sh
+dbxcli ls --output=json /
+dbxcli --help --output=json
+dbxcli put --help --output=json
+```
+
+Stable JSON envelopes, error codes, and process exit codes are documented in
+[Automation and JSON output](https://github.com/dropbox/dbxcli/blob/master/docs/automation.md).
+
+## JSON output
+
+For commands that support structured execution output, `--output=json` runs the
+command and emits stable schema v1 success and error envelopes for automation.
+
+JSON help is the machine-readable command-discovery surface. Use it to discover
+command paths, arguments, flags, aliases, input schemas, auth behavior,
+stdin/stdout behavior, schema references, and whether structured command
+execution output is supported:
+
+```sh
+dbxcli --help --output=json
+dbxcli put --help --output=json
+```
+
+See the
+[JSON schema v1 docs](https://github.com/dropbox/dbxcli/blob/master/docs/json-schema/v1/README.md)
+for schemas, stability policy, command contracts, and examples.
+
+## Common workflows
+
+Upload a file:
+
+```sh
+dbxcli put report.pdf /Reports/report.pdf
+```
+
+Upload without overwriting:
+
+```sh
+dbxcli put --if-exists fail report.md /Reports/report.md
+```
+
+Upload from a pipe:
+
+```sh
+tar cz ./project | dbxcli put - /Backups/project.tgz
+```
+
+Download to stdout:
+
+```sh
+dbxcli get /Backups/project.tgz - | tar tz
+```
+
+Create a shared link:
+
+```sh
+dbxcli share-link create /Reports/report.pdf
+```
+
+In text mode, `share-link create` prints only the shared-link URL to stdout:
+
+```sh
+url="$(dbxcli share-link create /Reports/report.pdf)"
+```
+
+## Troubleshooting
+
+### Why can uploading to `/remote.txt` fail on team accounts?
+
+Some team accounts may not have a writable Dropbox root namespace. Run
+`dbxcli ls /` first, then upload under a writable folder, such as your personal
+folder or a team folder.
+
+### Proxy configuration
+
+`dbxcli` uses Go's standard HTTP proxy behavior, so `HTTPS_PROXY`,
+`HTTP_PROXY`, and `NO_PROXY` apply to Dropbox API requests and OAuth token
+exchange/refresh requests made by the CLI.
+
+For Dropbox API and OAuth requests, set `HTTPS_PROXY`:
+
+```sh
+HTTPS_PROXY=http://127.0.0.1:8080 dbxcli ls /
+```
+
+For a shell session:
+
+```sh
+export HTTPS_PROXY=http://proxy.company.example:8080
+export NO_PROXY=localhost,127.0.0.1,.company.example
+dbxcli login
+```
+
+On Windows PowerShell:
+
+```powershell
+$env:HTTPS_PROXY = "http://127.0.0.1:8080"
+dbxcli login
+```
+
+On Windows cmd:
+
+```bat
+set HTTPS_PROXY=http://127.0.0.1:8080
+dbxcli login
+```
+
+`HTTP_PROXY` is also honored for plain HTTP requests. Use `NO_PROXY` to bypass
+the proxy for local or internal hosts. Lowercase forms such as `https_proxy`
+and `no_proxy` are also supported by Go's HTTP stack.
+
+If your proxy requires basic authentication, include credentials in the proxy
+URL:
+
+```sh
+HTTPS_PROXY=http://user:password@proxy.company.example:8080 dbxcli ls /
+```
+
+URL-encode special characters in proxy usernames or passwords. Be careful with
+proxy credentials in environment variables, shell history, CI logs, and process
+listings.
+
+The browser authorization step in `dbxcli login` is outside `dbxcli`; configure
+your browser or operating-system proxy separately if that page also needs a
+proxy.
 
 ## Features
 
-  * Supports basic file operations like ls, cp, mkdir, mv, rm (via the Files API)
-  * Supports search with sorting and flexible time formatting
-  * Supports file revisions and file restore
-  * Chunked uploads for large files, paginated listing for large directories
-  * Recursive directory uploads (`put -r`) and downloads (`get -r`)
-  * Retry with exponential backoff for uploads and downloads
-  * Supports a growing set of Team operations
+* File operations: `ls`, `cp`, `mkdir`, `mv`, `rm`, `put`, and `get`
+* Recursive upload and download with `put -r` and `get -r`
+* Pipe-friendly transfers with stdin upload and stdout download
+* Conflict control with `put --if-exists overwrite|skip|autorename|fail` and `cp`/`mv --if-exists fail|skip|autorename`
+* Shared-link creation, listing, inspection, update, revoke, and download
+* Search, file revisions, restore, flexible sorting, and time formatting
+* Chunked uploads for large files and paginated listing for large directories
+* OAuth login with refreshable saved credentials
+* Direct token automation with `DBXCLI_ACCESS_TOKEN`
+* Alternate saved-credential files with `DBXCLI_AUTH_FILE`
+* Structured JSON success and error envelopes for supported commands
+* JSON help manifests for machine-readable command discovery
+* Team administration commands and member-scoped access with `--as-member`
 
 ## Installation
 
-### Homebrew (macOS and Linux)
+### Homebrew
 
 ```sh
 brew install dbxcli
 ```
 
-### Linux
+Homebrew formula: [formulae.brew.sh/formula/dbxcli](https://formulae.brew.sh/formula/dbxcli)
 
-Download the archive for your architecture, verify its checksum, and install. Replace `X.Y.Z` with the latest version from the [Releases](https://github.com/dropbox/dbxcli/releases) page (without the leading `v`).
+### WinGet
+
+```powershell
+winget install --exact --id Dropbox.dbxcli
+```
+
+WinGet manifest: [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs/tree/master/manifests/d/Dropbox/dbxcli)
+
+### Release archives
+
+Download the archive for your platform from the
+[releases](https://github.com/dropbox/dbxcli/releases) page, verify its
+checksum, and install the `dbxcli` binary somewhere on your `PATH`.
+
+Linux example:
 
 ```sh
 curl -LO https://github.com/dropbox/dbxcli/releases/download/vX.Y.Z/dbxcli_X.Y.Z_linux_amd64.tar.gz
@@ -39,29 +210,7 @@ tar -xzf dbxcli_X.Y.Z_linux_amd64.tar.gz
 sudo mv dbxcli_X.Y.Z_linux_amd64/dbxcli /usr/local/bin/
 ```
 
-For ARM systems, use `linux_arm64` or `linux_arm` instead of `linux_amd64`.
-
-### macOS (manual)
-
-If you prefer not to use Homebrew:
-
-```sh
-curl -LO https://github.com/dropbox/dbxcli/releases/download/vX.Y.Z/dbxcli_X.Y.Z_darwin_arm64.tar.gz
-curl -LO https://github.com/dropbox/dbxcli/releases/download/vX.Y.Z/SHA256SUMS
-grep 'dbxcli_X.Y.Z_darwin_arm64.tar.gz' SHA256SUMS | shasum -a 256 -c -
-tar -xzf dbxcli_X.Y.Z_darwin_arm64.tar.gz
-sudo mv dbxcli_X.Y.Z_darwin_arm64/dbxcli /usr/local/bin/
-```
-
-Use `darwin_amd64` for Intel Macs.
-
-### Windows
-
-Download `dbxcli_X.Y.Z_windows_amd64.zip` from the [Releases](https://github.com/dropbox/dbxcli/releases) page, extract it, and add the directory to your `PATH`.
-
-### Release assets
-
-All release archives are available at the [releases](https://github.com/dropbox/dbxcli/releases) page:
+Release assets include:
 
 * `dbxcli_X.Y.Z_darwin_amd64.tar.gz`
 * `dbxcli_X.Y.Z_darwin_arm64.tar.gz`
@@ -72,462 +221,75 @@ All release archives are available at the [releases](https://github.com/dropbox/
 * `dbxcli_X.Y.Z_windows_amd64.zip`
 * `SHA256SUMS`
 
-### Instructions for building yourself
-
-1. Make sure `git` and `go` are installed.
-2. Install the latest released version:
-   ```sh
-   $ go install github.com/dropbox/dbxcli@latest
-   ```
-3. Or build from source:
-   ```sh
-   $ git clone https://github.com/dropbox/dbxcli.git
-   $ cd dbxcli
-   $ go build .
-   ```
-
-To use your own Dropbox app while developing, provide its app key when logging in:
+### Build from source
 
 ```sh
-$ dbxcli login --app-key=your-app-key
+go install github.com/dropbox/dbxcli/v3@latest
 ```
 
-## Usage
-
-`dbxcli` is largely self documenting. Run `dbxcli -h` for a list of supported commands:
+Or build from a clone:
 
 ```sh
-$ dbxcli --help
-Use dbxcli to quickly interact with your Dropbox, upload/download files,
-manage your team and more. It is easy, scriptable and works on all platforms!
-
-Usage:
-  dbxcli [command]
-
-Available Commands:
-  account     Display account information
-  completion  Generate the autocompletion script for the specified shell
-  cp          Copy a file or folder to a different location
-  du          Display usage information
-  get         Download a file or folder
-  login       Log in and save Dropbox credentials
-  logout      Log out of the current session
-  ls          List files and folders
-  mkdir       Create a new directory
-  mv          Move files
-  put         Upload files or directories
-  restore     Restore files
-  revs        List file revisions
-  rm          Remove files
-  search      Search
-  share       Sharing commands
-  team        Team management commands
-  version     Print version information
-
-Flags:
-      --as-member string   Member ID to perform action as
-      --output string      Output format: text, json (default "text")
-  -v, --verbose            Enable verbose logging
-
-Use "dbxcli [command] --help" for more information about a command.
+git clone https://github.com/dropbox/dbxcli.git
+cd dbxcli
+go build .
 ```
 
-### Output formats
-
-Text output is the default. JSON output is available through the global `--output` flag as commands are migrated:
+### Claude Code plugin
 
 ```sh
-$ dbxcli <command> --output=json
-$ dbxcli account --output=json
-$ dbxcli du --output=json
-$ dbxcli ls --output=json /
-$ dbxcli search --output=json report /Reports
-$ dbxcli revs --output=json /Reports/old.pdf
-$ dbxcli share-link create --output=json /Reports/old.pdf
-$ dbxcli share-link list --output=json /Reports/old.pdf
-$ dbxcli mkdir --output=json /new-folder
-$ dbxcli rm --output=json /old-file.txt
-$ dbxcli restore --output=json /Reports/old.pdf 015f...
+/plugin marketplace add Dropbox/dbxcli
+/plugin install dbxcli@dbxcli
 ```
 
-JSON support is rolling out command by command. Currently migrated commands are `account`, `du`, `ls`, `search`, `revs`, `share-link create`, `share-link list`, `share-link info`, `share-link update`, `share-link revoke`, `share-link download`, `mkdir`, `rm`, and `restore`. Commands that have not been migrated return a JSON error whose `error.message` is `structured output is not supported for this command yet` when used with `--output=json`.
+Then use the `/dbxcli` skill to work with Dropbox from Claude Code.
 
-Command results are written to stdout. Status, progress, warnings, diagnostics, and verbose logs are written to stderr.
+## Support posture
 
-Successful JSON responses are command-specific. Commands that operate on one path usually return an `input` object and a `result` metadata object:
+`dbxcli` is maintained in the Dropbox GitHub organization by Dropbox engineers,
+but it is not a formally supported Dropbox product. Use GitHub issues and pull
+requests for bugs and contributions; Dropbox Support does not provide support
+for this CLI. The CLI implements a practical subset of Dropbox API features,
+not the full API surface.
 
-```json
-{
-  "input": {
-    "path": "/new-folder",
-    "parents": false
-  },
-  "result": {
-    "type": "folder",
-    "path_display": "/new-folder",
-    "path_lower": "/new-folder",
-    "id": "id:..."
-  }
-}
-```
+## Command reference
 
-Commands that operate on multiple paths return a `results` array:
+The complete generated command reference is available here:
 
-```json
-{
-  "results": [
-    {
-      "input": {
-        "path": "/old-file.txt",
-        "permanent": false,
-        "recursive": false,
-        "force": false
-      },
-      "result": {
-        "type": "file",
-        "path_display": "/old-file.txt",
-        "path_lower": "/old-file.txt",
-        "id": "id:...",
-        "rev": "...",
-        "size": 123
-      }
-    }
-  ]
-}
-```
+* [dbxcli command reference](https://github.com/dropbox/dbxcli/blob/master/docs/commands/dbxcli.md)
 
-Commands that return entry lists, such as `ls`, `search`, and `revs`, return an `input` object and an `entries` array. `ls` input includes the listed path; `search` input includes the query and optional path scope; `revs` input includes the file path:
-
-```json
-{
-  "input": {
-    "path": "/Reports",
-    "recursive": false,
-    "include_deleted": false,
-    "only_deleted": false,
-    "long": false,
-    "reverse": false,
-    "time": "server"
-  },
-  "entries": [
-    {
-      "type": "file",
-      "path_display": "/Reports/q1.pdf",
-      "path_lower": "/reports/q1.pdf",
-      "id": "id:...",
-      "rev": "...",
-      "size": 123
-    }
-  ]
-}
-```
-
-Account and usage commands return command-specific objects:
-
-```json
-{
-  "input": {},
-  "account": {
-    "type": "full",
-    "account_id": "dbid:...",
-    "email": "user@example.com",
-    "email_verified": true,
-    "disabled": false
-  }
-}
-```
-
-```json
-{
-  "used": 123,
-  "allocation": {
-    "type": "individual",
-    "allocated": 100000
-  }
-}
-```
-
-Shared-link commands return command-specific objects built around shared-link metadata:
-
-```json
-{
-  "input": {
-    "path": "/Reports/old.pdf"
-  },
-  "result": {
-    "type": "file",
-    "url": "https://www.dropbox.com/s/...",
-    "name": "old.pdf",
-    "path_lower": "/reports/old.pdf",
-    "rev": "...",
-    "size": 123
-  },
-  "existing": false
-}
-```
-
-`share-link download --output=json <url> -` is not supported because stdout is reserved for downloaded file bytes when the target is `-`.
-
-In JSON mode, command errors are also written to stdout. The process still exits with a non-zero status:
-
-```json
-{
-  "ok": false,
-  "error": {
-    "message": "path exists and is not a folder: /old-file.txt",
-    "code": "path_conflict"
-  }
-}
-```
-
-Error `code` values are stable identifiers intended for scripts. Current codes are `structured_output_unsupported`, `unsupported_output_format`, `unknown_command`, `unknown_flag`, `path_conflict`, `invalid_arguments`, and `command_failed`.
-
-### Authentication
-
-By default, `dbxcli` stores OAuth credentials in `~/.config/dbxcli/auth.json`.
-Run `dbxcli login` to authorize dbxcli and save credentials:
+For command-specific help, run:
 
 ```sh
-$ dbxcli login
+dbxcli --help
+dbxcli put --help
+dbxcli share-link --help
+dbxcli share-link create --help
 ```
 
-Commands require saved credentials. If no saved credentials are available, run
-`dbxcli login` first or provide a token with `DBXCLI_ACCESS_TOKEN`.
-
-Personal and team logins use bundled Dropbox app keys by default. You can pass
-a custom app key as an option:
+For machine-readable command discovery, use JSON help:
 
 ```sh
-$ dbxcli login --app-key=your-app-key
+dbxcli --help --output=json
+dbxcli put --help --output=json
 ```
 
-You can also set custom app keys with environment variables:
+## Documentation
 
-```sh
-$ DROPBOX_PERSONAL_APP_KEY=your-app-key dbxcli login
-$ DROPBOX_TEAM_APP_KEY=your-app-key dbxcli login team-access
-$ DROPBOX_MANAGE_APP_KEY=your-app-key dbxcli login team-manage
-```
+* [Automation and JSON output](https://github.com/dropbox/dbxcli/blob/master/docs/automation.md)
+* [Sharing workflows](https://github.com/dropbox/dbxcli/blob/master/docs/sharing.md)
+* [JSON schema v1](https://github.com/dropbox/dbxcli/blob/master/docs/json-schema/v1/README.md)
+* [Release history](https://github.com/dropbox/dbxcli/blob/master/CHANGELOG.md)
+* [Contributing](https://github.com/dropbox/dbxcli/blob/master/CONTRIBUTING.md)
 
-Saved login credentials include a Dropbox refresh token and are refreshed
-automatically when the access token expires. If saved credentials are revoked or
-need to be replaced, run `dbxcli login` again.
-
-Set `DBXCLI_AUTH_FILE` to use a different credentials file:
-
-```sh
-$ DBXCLI_AUTH_FILE=/path/to/auth.json dbxcli login
-```
-
-For automation with short-lived Dropbox access tokens, set `DBXCLI_ACCESS_TOKEN`.
-This token is used directly and is not saved or refreshed. If it expires, the
-command fails and you must provide a fresh token:
-
-```sh
-$ DBXCLI_ACCESS_TOKEN=sl.xxxxxx dbxcli ls /
-```
-
-### Listing files
-
-```sh
-$ dbxcli ls -l /Photos
-Revision              Size    Last modified Path
-abc123                1.2 MiB 3 weeks ago   /Photos/vacation.jpg
-def456                4.5 MiB 1 month ago   /Photos/family.png
-```
-
-#### Time format
-
-By default, `ls -l`, `search -l`, and `revs -l` show relative timestamps ("3 weeks ago"). Use `--time-format` for absolute dates:
-
-```sh
-$ dbxcli ls -l --time-format=short /Photos
-Revision              Size    Last modified    Path
-abc123                1.2 MiB 2026-05-15 10:30 /Photos/vacation.jpg
-
-$ dbxcli ls -l --time-format=rfc3339 /Photos
-Revision              Size    Last modified        Path
-abc123                1.2 MiB 2026-05-15T10:30:00Z /Photos/vacation.jpg
-```
-
-Use `--time=client` to display client-modified time instead of server-modified (default):
-
-```sh
-$ dbxcli ls -l --time=client --time-format=short /Photos
-```
-
-#### Sorting
-
-Sort results with `--sort` and optionally `--reverse`:
-
-```sh
-$ dbxcli ls -l --sort=size /Documents          # smallest first
-$ dbxcli ls -l --sort=size --reverse /Documents # largest first
-$ dbxcli ls -l --sort=name /Documents           # alphabetical
-$ dbxcli ls -l --sort=time /Documents           # oldest first
-$ dbxcli ls -l --sort=type /Documents           # folders, files, deleted
-```
-
-### Searching
-
-```sh
-$ dbxcli search -l --time-format=short --sort=size "report"
-```
-
-All `--sort`, `--reverse`, `--time`, and `--time-format` flags work with both `ls` and `search`. The `--time` and `--time-format` flags also work with `revs -l`.
-
-### Sharing
-
-Create shared links:
-
-```sh
-$ dbxcli share-link create /file.txt # create or return an existing shared link
-$ dbxcli share-link create /file.txt --access viewer # create a link with requested access
-$ dbxcli share-link create /file.txt --audience team # create a link with requested audience
-$ dbxcli share-link create /file.txt --allow-download # create a downloadable shared link
-$ dbxcli share-link create /file.txt --disallow-download # create a shared link with downloads disabled
-$ dbxcli share-link create /file.txt --expires 2026-07-01T00:00:00Z # create an expiring shared link
-$ dbxcli share-link create /file.txt --password-prompt # create a password-protected shared link
-$ dbxcli share-link create /file.txt --remove-expiration # remove expiration when returning an existing link
-```
-
-Inspect and list shared links:
-
-```sh
-$ dbxcli share-link info <url>       # display shared link information
-$ dbxcli share-link info <url> --path /nested/file.txt # display information for a path inside the shared link
-$ dbxcli share-link list             # list existing shared links
-$ dbxcli share-link list /file.txt   # list direct shared links for a path
-```
-
-Download shared links:
-
-```sh
-$ dbxcli share-link download <url> [target] # download a shared-link file
-$ dbxcli share-link download <url> --path /nested/file.txt # download a file inside a folder shared link
-$ dbxcli share-link download <url> ./local.txt --path /nested/file.txt # download nested file to a local target
-$ dbxcli share-link download <url> [target] --recursive # download a folder shared link
-```
-
-Update shared links:
-
-```sh
-$ dbxcli share-link update <url> --allow-download # update shared link settings
-$ dbxcli share-link update <url> --disallow-download # disable downloads from a shared link
-$ dbxcli share-link update <url> --audience public # update shared link audience
-$ dbxcli share-link update <url> --expires 2026-07-01T00:00:00Z # update shared link expiration
-$ dbxcli share-link update <url> --remove-expiration # remove shared link expiration
-$ dbxcli share-link update <url> --password-prompt # set or change a shared link password
-$ dbxcli share-link update <url> --remove-password # remove a shared link password
-```
-
-Revoke shared links:
-
-```sh
-$ dbxcli share-link revoke <url>     # revoke a shared link
-$ dbxcli share-link revoke --path /file.txt # revoke direct shared links for a path
-```
-
-Compatibility and shared folders:
-
-```sh
-$ dbxcli share list link             # deprecated compatibility command
-$ dbxcli share list folder           # list shared folders
-```
-
-`share-link create --access` supports `viewer`, `editor`, and `max`. Dropbox does not support changing access for an existing shared link, so `--access` fails clearly if the link already exists.
-
-`share-link create --audience` and `share-link update --audience` support `public`, `team`, `members`, and `no-one`. Dropbox team and folder policies can still resolve the effective audience differently.
-
-Dropbox account, team, and folder policies can reject shared-link settings such as passwords, expiration, audience, or disabled downloads. In that case, dbxcli returns the Dropbox API error, for example `settings_error/not_authorized/`.
-
-`share-link create`, `share-link update`, `share-link info`, and `share-link download` support `--password <value>`, `--password-prompt`, and `--password-file <path>` for password-protected links. Use `--password-prompt` for interactive use so the password is not echoed.
-
-`share-link download` writes to the metadata filename when `target` is omitted. Use `--path` to download a single file inside a folder shared link. Use `-` as the target to write file bytes to stdout. Folder shared links require `--recursive` and cannot be written to stdout.
-
-New and changed commands should write command results to stdout. Status, progress, warnings, diagnostics, and verbose logs should go to stderr.
-
-### Team management
-
-```sh
-$ dbxcli team --help
-Team management commands
-
-Usage:
-  dbxcli team [command]
-
-Available Commands:
-  add-member    Add a new member to a team
-  info          Get team information
-  list-groups   List groups
-  list-members  List team members
-  remove-member Remove member from a team
-
-Global Flags:
-      --as-member string   Member ID to perform action as
-      --output string      Output format: text, json (default "text")
-  -v, --verbose            Enable verbose logging
-
-Use "dbxcli team [command] --help" for more information about a command.
-```
-
-The `--verbose` option will turn on verbose logging and is useful for debugging.
-
-### Uploading files and directories
-
-```sh
-$ dbxcli put file.txt /destination/file.txt        # upload a single file
-$ dbxcli put -r ./project /backup/project          # recursively upload a directory
-$ dbxcli put -r -w 8 ./large-folder /backup/large  # use 8 workers per large file
-$ dbxcli put --if-exists skip file.txt /dest.txt   # skip if the file already exists
-```
-
-By default, `put` overwrites existing destination files. Use `--if-exists overwrite|skip|fail` to choose whether existing files are overwritten, skipped, or treated as an error.
-
-### Downloading files and directories
-
-```sh
-$ dbxcli get /remote/file.txt ./local-file.txt     # download a single file
-$ dbxcli get -r /remote/folder ./local-folder      # recursively download a folder
-```
-
-### Piping with stdin/stdout
-
-Use `-` as the local operand to stream through pipes:
-
-```sh
-$ printf 'hello' | dbxcli put - /hello.txt         # upload from stdin
-$ tar cz ./src | dbxcli put - /backups/src.tgz     # pipe archive to Dropbox
-$ dbxcli get /backups/src.tgz - | tar tz           # download to stdout and list
-$ dbxcli get /file.txt - > local-copy.txt          # download to stdout, redirect to file
-```
-
-Stdin uploads are spooled to a temp file before uploading, so disk space up to the full input size is required. Stdout downloads are byte-clean: all progress and diagnostic output goes to stderr.
-
-A bare `-` means stream only when it is the local operand. Dropbox paths named `-` are valid, for example `dbxcli put - /-` and `dbxcli get /- -`. To upload a local file literally named `-`, use `./-`.
-
-### Removing files and folders
-
-```sh
-$ dbxcli rm /remote/file.txt                       # move a file to Dropbox trash
-$ dbxcli rm -r /remote/folder                      # remove a non-empty folder
-$ dbxcli rm --permanent /remote/file.txt           # permanently delete when Dropbox permits it
-```
-
-### Creating directories
-
-```sh
-$ dbxcli mkdir /projects/2026/reports   # creates all intermediate directories
-$ dbxcli mkdir -p /projects/2026/reports # no error if directory already exists
-```
+Generated Cobra command docs live under `docs/commands/`, and CI verifies they
+stay in sync with the CLI.
 
 ## Contributing
 
- * Step 1: If you're submitting a non-trivial change, please fill out the [Dropbox Contributor License Agreement](https://opensource.dropbox.com/cla/) first.
- * Step 2: send a [pull request](https://help.github.com/articles/using-pull-requests/)
- * Step 3: Profit!
- 
-## Useful Resources
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, testing, pull request guidelines, and the Dropbox Contributor License Agreement.
 
-* [Go SDK documentation](https://godoc.org/github.com/dropbox/dropbox-sdk-go-unofficial)
-* [API documentation](https://www.dropbox.com/developers/documentation/http/documentation)
+## Useful resources
+
+* [Dropbox Go SDK](https://pkg.go.dev/github.com/dropbox/dropbox-sdk-go-unofficial)
+* [Dropbox API documentation](https://www.dropbox.com/developers/documentation/http/documentation)
